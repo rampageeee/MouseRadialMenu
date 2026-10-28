@@ -1,6 +1,6 @@
 # Known limitations and unresolved Windows checks
 
-- The Windows executable cross-builds on Linux; all actual Windows 11 desktop acceptance is pending. Native MSVC CI passed for commit `5b42b57`; that run predates hold-mode implementation and does not validate this change.
+- The Windows executable cross-builds on Linux; all actual Windows 11 desktop acceptance is pending. Native MSVC build, CTest and packaging passed for hold implementation commit `ffda5ee` in [CI run 40692469446](https://github.com/rampageeee/MouseRadialMenu/actions/runs/40692469446). CI does not validate interactive input behavior.
 - Toggle and opt-in hold/release activation are implemented with restore cursor mode. Virtual cursor is rejected in configuration. Hold behavior needs the dedicated Windows input checks before being considered accepted.
 - No game camera isolation. TinyRadial does not register Raw Input or stop ordinary movement from reaching underlying applications. Exclusive fullscreen overlays and anti-cheat compatibility are unverified.
 - A normal process refuses higher-integrity targets and cancels when process metadata cannot be queried. TinyRadial never elevates itself.

@@ -42,3 +42,5 @@ Re-run the [manual matrix](MANUAL_TESTS.md) for keyboard safety and host behavio
 ## Hold/release follow-up
 
 The opt-in hold implementation extends the suite to **294 checks**, passed in fresh native Debug and ASan/UBSan builds on the same Linux host. Sanitizer execution uses `ASAN_OPTIONS=detect_leaks=0`; no leak-check result is claimed. Windows x64 cross-compilation passes. Earlier artifact hashes, sizes and 261-check records above describe the pre-hold build. Hold mode retains a keyboard observer while enabled; its Windows input behavior and idle overhead still require measurement.
+
+Native Windows/MSVC 19.44.35229.0 build, CTest and packaging for hold commit `ffda5ee` passed in [CI run 40692469446](https://github.com/rampageeee/MouseRadialMenu/actions/runs/40692469446), which uploaded `TinyRadial-windows-x64-testing`. Its log reports **462,848 executable bytes**, SHA-256 `5579450E69A137AD88F680163897384734905AE4CDB02FEA16F4D4DC0033CEE6`. This confirms native build/test/package and file size, not desktop or runtime-performance acceptance.
