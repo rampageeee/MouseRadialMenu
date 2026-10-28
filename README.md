@@ -54,13 +54,23 @@ Keyboard shortcuts use Windows virtual keys and depend on the target's layout, f
 
 ## Build on Windows
 
-Install Visual Studio 2022 Build Tools with **Desktop development with C++**, a Windows SDK, and CMake. From this repository in PowerShell:
+Install Visual Studio 2022 Build Tools with **Desktop development with C++**. In Visual Studio Installer, make sure **MSVC x64/x86 build tools**, a **Windows SDK**, and **C++ CMake tools for Windows** are selected. CMake must be version 3.22 or newer. From this repository in PowerShell:
 
 ```powershell
 .\tools\build-release.ps1
 ```
 
-The script configures x64 MSVC, builds Release, runs the core tests, and writes the portable folder and ZIP under `dist/`. Alternatively:
+The script uses the same CMake discovery approach as HarmonyBrain: it checks `PATH`, standard standalone and per-user installation folders, and Visual Studio / Build Tools via `vswhere` (including custom installation locations). It uses CTest from the same installation, configures x64 MSVC, builds Release, runs the core tests, and writes the portable folder and ZIP under `dist/`.
+
+If you see **`cmake` is not recognized**, PowerShell cannot find CMake in the current session. Use the updated script above to locate your existing installation automatically. For a portable or custom installation, pass the executable explicitly:
+
+```powershell
+.\tools\build-release.ps1 -CMakePath "D:/Tools/CMake/bin/cmake.exe"
+```
+
+You can also add your existing CMake `bin` directory to `PATH` and open a new PowerShell window. If CMake is missing, enable **C++ CMake tools for Windows** in Visual Studio Installer or install standalone [CMake](https://cmake.org/download/). Installing CMake alone does not install the C++ compiler or Windows SDK.
+
+Alternatively, with both `cmake` and `ctest` available on `PATH` (for example in Developer PowerShell for Visual Studio):
 
 ```powershell
 cmake -S . -B build -A x64
