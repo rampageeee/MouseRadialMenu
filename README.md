@@ -16,6 +16,8 @@ Extract the entire portable folder to a writable location, then run **TinyRadial
 
 The selected shortcut runs after the overlay closes and all physical modifiers and the activation key are released. Release them within two seconds; otherwise the action cancels. A change of foreground window also cancels. No shortcut is sent on submenu entry.
 
+For **hold-to-open / release-to-execute**, change `activation.behavior` in `config.json` to `"hold"`, save, then reload through the tray. Hold **Ctrl+Alt+Space**, point at a leaf action, and release **Space** to select it. Release Ctrl and Alt too so the action can run. You can release the modifiers before Space; Space's release ends the gesture. Hover or click a submenu while holding, return through its center, then point at a leaf and release. Click/Enter only enter submenus in hold mode; they do not execute leaves. Releasing over the center, outside, or a submenu entry cancels. Esc or focus loss cancels immediately, and the later trigger release cannot execute anything. A very quick tap released before the menu opens does nothing. Hold mode requires Windows input validation; see the [hold-mode checks](docs/MANUAL_TESTS.md#hold-to-open--release-to-execute).
+
 Start with the safe **tools/InputProbe.exe** and the [input test](docs/INPUT_FEASIBILITY.md), then a disposable Notepad document. Sample shortcuts can edit or save documents. REAPER and Blender samples are **illustrative assumptions, not verified bindings**; check REAPER's Action List and Blender's current keymap before using them. The label “check binding/keymap” identifies especially context-sensitive examples. All sample bindings, including Undo and Save, can be customized in the target application.
 
 ## Edit your menus
@@ -30,7 +32,7 @@ Change a segment's `label` to rename it and `keys` to change its chord:
 
 Copy a profile into `profiles/myapp.json`, set its `name` and `match.executables` to the application's executable filename (for example `myapp.exe`), edit its menu, then add `"profiles/myapp.json"` to the `profiles` array in `config.json`. Matching ignores ASCII letter case. Exactly one profile must have an empty executable list: the global fallback. Duplicate executable matches are errors, so profile order never silently resolves conflicts.
 
-Use either `keys` or `submenu` on an item, with 1–8 items per menu and up to 16 menu levels. Full rules are in [configuration reference](docs/CONFIGURATION.md). The supported activation behavior is `"toggle"` and cursor mode is `"restore"`. Hold/release and virtual cursor are deferred.
+Use either `keys` or `submenu` on an item, with 1–8 items per menu and up to 16 menu levels. Full rules are in [configuration reference](docs/CONFIGURATION.md). Activation supports `"toggle"` (default) and `"hold"`; cursor mode is `"restore"`. Virtual cursor remains deferred.
 
 For a separate configuration directory:
 

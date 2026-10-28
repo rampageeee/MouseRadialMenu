@@ -10,7 +10,7 @@ namespace radial::win {
 namespace {
 constexpr UINT tray_message = WM_APP + 1, input_message = WM_APP + 2, focus_message = WM_APP + 3;
 constexpr UINT_PTR active_timer = 1, dispatch_timer = 2, drain_timer = 3;
-enum Command : WPARAM { Cancel = 1, Confirm = 2, Back = 3 };
+enum Command : WPARAM { Cancel = 1, Confirm = 2, Back = 3, HoldOpen = 4, HoldRelease = 5 };
 enum TrayCommand { Enable = 100, Reload, Folder, Exit };
 class App;
 App* app = nullptr;
@@ -19,7 +19,7 @@ class App {
 public:
     App(HINSTANCE instance, std::filesystem::path directory) : instance_(instance), directory_(std::move(directory)) {}
     ~App() {
-        close_menu(); remove_hooks();
+        cancel(); remove_hooks(true);
         if (focus_hook_) UnhookWinEvent(focus_hook_);
         if (window_) {
             UnregisterHotKey(window_, hotkey_id_);
@@ -41,6 +41,7 @@ public:
         overlay_.create(instance_);
         register_activation(*candidate, hotkey_id_);
         config_.commit(std::move(candidate));
+        if (hold_enabled()) ensure_keyboard_hook();
         tray_.cbSize = sizeof(tray_);
         tray_.hWnd = window_;
         tray_.uID = 1;
@@ -59,6 +60,8 @@ public:
         switch (message) {
         case WM_HOTKEY:
             if (static_cast<int>(w) != hotkey_id_ || !enabled_) return 0;
+            // Hold owns primary down/up in the keyboard hook; registration reserves the chord.
+            if (hold_enabled()) return 0;
             if (pending_) { cancel(); return 0; }
             if (menu_.active()) select(); else open();
             return 0;
@@ -68,11 +71,15 @@ public:
             else if (w == drain_timer) drain();
             return 0;
         case input_message:
+            if (w == HoldOpen || w == HoldRelease) {
+                hold_message(w, static_cast<std::uint32_t>(l));
+                return 0;
+            }
             if (static_cast<unsigned>(l) != session_) return 0;
             if (w == Cancel) cancel();
             else if (menu_.active() && w == Confirm) select();
             else if (menu_.active() && w == Back) {
-                if (menu_.back()) overlay_.render(menu_, *snapshot_); else close_menu();
+                if (menu_.back()) overlay_.render(menu_, *snapshot_); else cancel();
             }
             return 0;
         case focus_message:
@@ -91,7 +98,13 @@ public:
             case Enable:
                 cancel();
                 if (enabled_) { UnregisterHotKey(window_, hotkey_id_); enabled_ = false; }
-                else { register_activation(*config_.current(), hotkey_id_); enabled_ = true; }
+                else {
+                    if (config_.current()->activation_behavior == ActivationBehavior::Hold) ensure_keyboard_hook();
+                    try { register_activation(*config_.current(), hotkey_id_); }
+                    catch (...) { drain(); throw; }
+                    enabled_ = true;
+                }
+                drain();
                 break;
             case Reload: cancel(); reload(); break;
             case Folder:
@@ -127,6 +140,8 @@ public:
         catch (...) { app->error("Unexpected Windows callback error"); return 0; }
     }
     static void CALLBACK foreground_proc(HWINEVENTHOOK, DWORD, HWND window, LONG, LONG, DWORD, DWORD) noexcept {
+        if (app && app->hold_.valid() && app->hold_.holding() && window != app->hold_window_)
+            app->hold_.cancel(); // Also invalidate a gesture whose opening is still queued.
         if (app && (app->menu_.active() || app->pending_)) PostMessageW(app->window_, focus_message, 0, reinterpret_cast<LPARAM>(window));
     }
     static LRESULT CALLBACK keyboard_proc(int code, WPARAM w, LPARAM l) noexcept {
@@ -135,14 +150,43 @@ public:
             if (!(event.flags & LLKHF_INJECTED) && event.vkCode < 256) {
                 const auto key = static_cast<std::size_t>(event.vkCode);
                 const bool up = w == WM_KEYUP || w == WM_SYSKEYUP;
+                const bool repeat = app->physical_down_[key];
+                app->physical_down_[key] = !up;
+                auto config = app->config_.current();
+                if (config) {
+                    unsigned modifiers = 0;
+                    if (!up && key == config->activation.key) {
+                        if (GetAsyncKeyState(VK_CONTROL) & 0x8000) modifiers |= Ctrl;
+                        if (GetAsyncKeyState(VK_MENU) & 0x8000) modifiers |= Alt;
+                        if (GetAsyncKeyState(VK_SHIFT) & 0x8000) modifiers |= Shift;
+                        if ((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) modifiers |= Win;
+                    }
+                    auto action = app->hold_.event(config->activation, app->hold_enabled(),
+                        static_cast<std::uint16_t>(key), up, repeat, modifiers);
+                    if (action == HoldEvent::Open) {
+                        app->hold_origin_valid_ = GetCursorPos(&app->hold_origin_) != FALSE;
+                        app->hold_window_ = GetForegroundWindow();
+                        app->hold_pid_ = 0;
+                        if (app->hold_window_) GetWindowThreadProcessId(app->hold_window_, &app->hold_pid_);
+                        app->post_hold(HoldOpen);
+                    } else if (action == HoldEvent::Release) {
+                        if (!app->hold_visible_ || app->menu_gesture_ != app->hold_.session()) app->hold_.cancel();
+                        app->release_point_valid_ = GetCursorPos(&app->release_point_) != FALSE;
+                        app->release_time_ = GetTickCount64();
+                        app->post_hold(HoldRelease);
+                    }
+                    if (action != HoldEvent::Pass) return 1;
+                }
                 const bool control = key == VK_ESCAPE || key == VK_RETURN || key == VK_BACK;
+                const bool opening_hold = app->hold_.holding() && app->hold_.valid();
+                if (!up && key == VK_ESCAPE && opening_hold) app->hold_.cancel();
                 if (app->preheld_[key]) {
                     if (up) app->preheld_[key] = false;
                 } else if (up && app->swallowed_[key]) {
                     app->swallowed_[key] = false;
                     if (app->menu_.active() && key != VK_ESCAPE) app->post(key == VK_RETURN ? Confirm : Back);
                     return 1;
-                } else if (!up && control && (app->menu_.active() || (app->pending_ && key == VK_ESCAPE))) {
+                } else if (!up && control && (app->menu_.active() || ((app->pending_ || opening_hold) && key == VK_ESCAPE))) {
                     const bool first = !app->swallowed_[key];
                     app->swallowed_[key] = true;
                     if (key == VK_ESCAPE && first) app->post(Cancel);
@@ -184,33 +228,75 @@ public:
     }
 private:
     void post(Command command) noexcept { PostMessageW(window_, input_message, command, session_); }
+    void post_hold(Command command) noexcept {
+        if (!PostMessageW(window_, input_message, command, hold_.session())) hold_.cancel();
+    }
+    bool hold_enabled() const {
+        auto config = config_.current();
+        return enabled_ && config && config->activation_behavior == ActivationBehavior::Hold;
+    }
+    void hold_message(WPARAM command, std::uint32_t gesture) {
+        if (gesture != hold_.session()) return; // Ignore queued events from earlier gestures.
+        if (command == HoldOpen) {
+            if (!hold_enabled()) { drain(); return; }
+            if (menu_.active() || pending_ || draining()) { cancel(); return; }
+            if (!hold_.valid() || !hold_.holding()) { drain(); return; }
+            if (!hold_origin_valid_) { cancel(); throw std::runtime_error("Cannot capture activation pointer position"); }
+            open(true);
+        } else {
+            if (menu_.active() && gesture == menu_gesture_ && snapshot_->activation_behavior == ActivationBehavior::Hold) {
+                if (!hold_.valid() || !release_point_valid_ || !target_valid(target_)) { cancel(); return; }
+                double x, y;
+                overlay_.relative(release_point_, x, y);
+                // Use release-time coordinates and time, not a later timer/cursor position.
+                menu_.hover(x, y, release_time_);
+                finish_selection(menu_.release());
+            }
+            drain();
+        }
+    }
     void register_activation(const Config& config, int id) {
         if (!RegisterHotKey(window_, id, config.activation.modifiers | MOD_NOREPEAT, config.activation.key))
             throw std::runtime_error("Cannot register activation '" + config.activation.text + "'. It may be reserved or used by another app. Edit config.json and reload.");
     }
     void reload() {
         auto candidate = load_config(directory_);
-        if (enabled_ && !(candidate->activation == config_.current()->activation)) {
-            int new_id = hotkey_id_ == 1 ? 2 : 1;
-            // Reserve the candidate before unregistering the last-known-good hotkey.
-            register_activation(*candidate, new_id);
-            UnregisterHotKey(window_, hotkey_id_);
-            hotkey_id_ = new_id;
-        }
+        try {
+            if (enabled_ && candidate->activation_behavior == ActivationBehavior::Hold) ensure_keyboard_hook();
+            if (enabled_ && !(candidate->activation == config_.current()->activation)) {
+                int new_id = hotkey_id_ == 1 ? 2 : 1;
+                // Reserve the candidate before unregistering the last-known-good hotkey.
+                register_activation(*candidate, new_id);
+                UnregisterHotKey(window_, hotkey_id_);
+                hotkey_id_ = new_id;
+            }
+        } catch (...) { drain(); throw; }
         config_.commit(std::move(candidate));
+        drain();
+    }
+    void ensure_keyboard_hook() {
+        if (keyboard_hook_) return;
+        // A trigger already held when enabling/reloading must not open on autorepeat.
+        for (std::size_t key = 0; key < physical_down_.size(); ++key)
+            physical_down_[key] = (GetAsyncKeyState(static_cast<int>(key)) & 0x8000) != 0;
+        keyboard_hook_ = SetWindowsHookExW(WH_KEYBOARD_LL, keyboard_proc, instance_, 0);
+        if (!keyboard_hook_) throw std::runtime_error("Cannot install keyboard controls; activation cancelled");
     }
     void install_hooks() {
-        if (keyboard_hook_ || mouse_hook_) remove_hooks();
         swallowed_.fill(false); mouse_down_.fill(false); preheld_.fill(false);
         for (int key : {VK_ESCAPE, VK_RETURN, VK_BACK}) preheld_[static_cast<std::size_t>(key)] = (GetAsyncKeyState(key) & 0x8000) != 0;
-        keyboard_hook_ = SetWindowsHookExW(WH_KEYBOARD_LL, keyboard_proc, instance_, 0);
+        ensure_keyboard_hook();
         mouse_hook_ = SetWindowsHookExW(WH_MOUSE_LL, mouse_proc, instance_, 0);
         if (!keyboard_hook_ || !mouse_hook_) { remove_hooks(); throw std::runtime_error("Cannot install menu controls; opening cancelled"); }
     }
-    void remove_hooks() noexcept {
-        if (keyboard_hook_) UnhookWindowsHookEx(keyboard_hook_);
+    void remove_hooks(bool force = false) noexcept {
+        // Hold needs a lightweight observer while enabled, or until its owned key-up.
+        if (keyboard_hook_ && (force || (!hold_enabled() && !hold_.holding()))) {
+            UnhookWindowsHookEx(keyboard_hook_);
+            keyboard_hook_ = nullptr;
+        }
         if (mouse_hook_) UnhookWindowsHookEx(mouse_hook_);
-        keyboard_hook_ = nullptr; mouse_hook_ = nullptr;
+        mouse_hook_ = nullptr;
         swallowed_.fill(false); mouse_down_.fill(false);
         if (window_) KillTimer(window_, drain_timer);
     }
@@ -231,12 +317,16 @@ private:
             } else remove_hooks();
         }
     }
-    void open() {
+    void open(bool from_hold = false) {
         if (draining()) return;
         remove_hooks();
         snapshot_ = config_.current();
         target_ = capture_target();
-        if (!GetCursorPos(&origin_)) throw std::runtime_error("Cannot capture pointer position");
+        if (from_hold) {
+            if (target_.window != hold_window_ || target_.pid != hold_pid_) { cancel(); return; }
+            origin_ = hold_origin_;
+            menu_gesture_ = hold_.session();
+        } else if (!GetCursorPos(&origin_)) throw std::runtime_error("Cannot capture pointer position");
         restore_ = true;
         overlay_.place(origin_);
         const auto& profile = snapshot_->match(target_.executable);
@@ -245,10 +335,15 @@ private:
         install_hooks();
         if (!SetTimer(window_, active_timer, 16, nullptr)) throw std::runtime_error("Cannot start menu timer");
         overlay_.render(menu_, *snapshot_);
+        hold_visible_ = from_hold && hold_.valid() && hold_.holding();
     }
     void tick() {
         if (!menu_.active()) return;
         if (!target_valid(target_)) { cancel(); return; }
+        if (snapshot_->activation_behavior == ActivationBehavior::Hold) {
+            if (!hold_.valid() || hold_.session() != menu_gesture_) { cancel(); return; }
+            if (!hold_.holding()) return; // A queued release owns the final hit test.
+        }
         POINT point{};
         if (!GetCursorPos(&point)) { cancel(); return; }
         double x, y;
@@ -256,13 +351,20 @@ private:
         if (menu_.hover(x, y, GetTickCount64())) overlay_.render(menu_, *snapshot_);
     }
     void select() {
+        if (menu_.active() && snapshot_->activation_behavior == ActivationBehavior::Hold && !hold_.holding()) return;
         const Menu* before = menu_.active() ? &menu_.menu() : nullptr;
         tick();
         if (!menu_.active()) return;
         // A dwell transition in tick is already the confirmation gesture for this submenu.
         if (&menu_.menu() != before) return;
+        if (snapshot_->activation_behavior == ActivationBehavior::Hold && menu_.selected() >= 0 &&
+            !menu_.menu().items[static_cast<std::size_t>(menu_.selected())].submenu) return;
         auto chord = menu_.confirm();
         if (menu_.active()) { overlay_.render(menu_, *snapshot_); return; }
+        finish_selection(std::move(chord));
+    }
+    void finish_selection(std::optional<Chord> chord) {
+        hold_.cancel();
         pending_ = std::move(chord);
         close_menu();
         if (pending_) {
@@ -271,6 +373,7 @@ private:
         }
     }
     void close_menu() noexcept {
+        hold_visible_ = false;
         menu_.close(); overlay_.hide();
         if (window_) KillTimer(window_, active_timer);
         if (restore_) { SetCursorPos(origin_.x, origin_.y); restore_ = false; }
@@ -280,12 +383,14 @@ private:
         } else remove_hooks();
     }
     void cancel() noexcept {
+        hold_.cancel();
         pending_.reset();
         if (window_) KillTimer(window_, dispatch_timer);
         close_menu();
     }
     void try_dispatch() {
         if (!pending_) { KillTimer(window_, dispatch_timer); return; }
+        if (snapshot_->activation_behavior == ActivationBehavior::Hold && hold_.session() != menu_gesture_) { cancel(); return; }
         if (!target_valid(target_) || GetTickCount64() >= dispatch_until_ || (GetAsyncKeyState(VK_ESCAPE) & 0x8000)) { cancel(); return; }
         if (draining() || !keys_released(*pending_, snapshot_->activation)) return;
         remove_hooks();
@@ -325,7 +430,15 @@ private:
     HHOOK keyboard_hook_{}, mouse_hook_{};
     HWINEVENTHOOK focus_hook_{};
     std::array<bool, 256> swallowed_{}, preheld_{};
+    std::array<bool, 256> physical_down_{};
     std::array<bool, 5> mouse_down_{};
+    HoldActivation hold_;
+    std::uint32_t menu_gesture_ = 0;
+    POINT hold_origin_{}, release_point_{};
+    HWND hold_window_{};
+    DWORD hold_pid_{};
+    bool hold_origin_valid_ = false, release_point_valid_ = false, hold_visible_ = false;
+    ULONGLONG release_time_{};
     std::optional<Chord> pending_;
     ULONGLONG dispatch_until_{}, drain_until_{};
     unsigned session_ = 0;

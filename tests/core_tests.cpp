@@ -60,6 +60,72 @@ void shortcuts() {
         rejects([&]{parse_chord(bad);}, "invalid single chord");
     check(chord_keys(parse_chord("Win+Shift+Alt+Ctrl+S")) == std::vector<std::uint16_t>({0x11,0x12,0x10,0x5b,'S'}), "deterministic modifier down order");
 }
+void hold_activation() {
+    const auto trigger = parse_chord("Ctrl+Alt+Space");
+    HoldActivation hold;
+    const unsigned modifiers = Ctrl | Alt;
+    check(hold.event(trigger, false, 0x20, false, false, modifiers) == HoldEvent::Pass, "disabled hold passes trigger");
+    check(hold.event(trigger, true, 0x20, false, false, Ctrl) == HoldEvent::Pass, "incomplete chord does not open");
+    check(hold.event(trigger, true, 0x20, false, false, modifiers | Shift) == HoldEvent::Pass, "extra modifier does not open");
+    check(hold.event(trigger, true, 'A', false, false, modifiers) == HoldEvent::Pass, "unrelated key passes");
+    check(hold.event(trigger, true, 0x20, true, false, 0) == HoldEvent::Pass, "unowned up passes");
+    check(hold.event(trigger, true, 0x20, false, true, modifiers) == HoldEvent::Pass, "preheld key autorepeat cannot open");
+    check(hold.event(trigger, true, 0x20, false, false, modifiers) == HoldEvent::Open, "full chord opens once");
+    const auto first = hold.session();
+    check(hold.holding() && hold.valid(), "gesture owns primary key");
+    check(hold.event(trigger, true, 0x20, false, true, modifiers) == HoldEvent::Consume && hold.session() == first, "autorepeat is consumed without reopening");
+    check(hold.event(trigger, true, 0x11, true, false, Alt) == HoldEvent::Pass && hold.holding(), "modifier up passes and does not commit");
+    check(hold.event(trigger, true, 0x20, true, false, 0) == HoldEvent::Release && !hold.holding() && hold.valid(), "primary up commits even after modifiers release");
+    check(hold.event(trigger, true, 0x20, true, false, 0) == HoldEvent::Pass, "duplicate up cannot commit twice");
+    hold.cancel();
+    check(!hold.valid(), "queued release invalidated by cancellation");
+
+    check(hold.event(trigger, true, 0x20, false, false, modifiers) == HoldEvent::Open, "new gesture after release");
+    check(hold.session() != first, "stale queued gesture has a different session");
+    hold.cancel();
+    check(!hold.valid() && hold.holding(), "cancel preserves primary ownership");
+    check(hold.event(trigger, true, 0x20, false, true, modifiers) == HoldEvent::Consume, "cancelled gesture cannot reopen on repeat");
+    const auto changed = parse_chord("F13");
+    check(hold.event(changed, false, 0x7c, false, false, 0) == HoldEvent::Pass, "disable/reload does not capture a new key");
+    check(hold.event(changed, false, 0x20, true, false, 0) == HoldEvent::Release && !hold.valid(), "cancelled primary up remains owned after disable/reload");
+    check(hold.event(changed, true, 0x7c, false, false, 0) == HoldEvent::Open, "unmodified F13 can activate hold");
+    check(hold.event(changed, true, 0x7c, true, false, 0) == HoldEvent::Release, "unmodified trigger release");
+
+    auto config = load_config(SAMPLE_ROOT);
+    auto root = config->match("unknown.exe").menu;
+    MenuState menu;
+    menu.open(root, 28, 220);
+    menu.hover(0, -120, 100);
+    auto chord = menu.release();
+    check(chord && chord->text == "Ctrl+C" && !menu.active(), "release over leaf runs exactly one chord");
+    check(!menu.release(), "duplicate menu release cannot dispatch");
+    menu.open(root, 28, 220); menu.hover(0, 0, 100);
+    check(!menu.release() && !menu.active(), "release in center cancels");
+    menu.open(root, 28, 220); menu.hover(0, -201, 100);
+    check(!menu.release() && !menu.active(), "release outside cancels");
+    menu.open(root, 28, 220); menu.hover(0, 120, 100);
+    check(!menu.release() && !menu.active(), "release over submenu cancels without entering or dispatching");
+    menu.open(root, 28, 220); menu.hover(0, 120, 100); menu.hover(0, 120, 320);
+    check(menu.nested() && !menu.release() && !menu.active(), "release after dwell cannot accidentally select descendant");
+    menu.open(root, 28, 220); menu.hover(0, 120, 100); menu.confirm();
+    menu.hover(0, 0, 101); menu.hover(0, -120, 102);
+    chord = menu.release();
+    check(chord && chord->text == "Ctrl+Z", "hold supports explicit submenu entry and nested leaf release");
+    menu.open(root, 28, 220); menu.hover(0, -120, 100); menu.close();
+    check(!menu.release(), "cancelled menu cannot execute on later release");
+    menu.open(root, 28, 220); menu.hover(0, -120, 100); menu.hover(120, 0, 101);
+    chord = menu.release();
+    check(chord && chord->text == "Ctrl+V", "release hit test replaces stale highlighted action");
+
+    int opens = 0, releases = 0;
+    for (int i = 0; i < 200; ++i) {
+        if (hold.event(trigger, true, 0x20, false, false, modifiers) == HoldEvent::Open) ++opens;
+        hold.event(trigger, true, 0x20, false, true, modifiers);
+        if (i % 2) hold.cancel();
+        if (hold.event(trigger, true, 0x20, true, false, 0) == HoldEvent::Release && hold.valid()) ++releases;
+    }
+    check(opens == 200 && releases == 100 && !hold.holding(), "repeated hold/cancel cycles remain balanced");
+}
 void configuration() {
     auto samples = load_config(SAMPLE_ROOT);
     check(samples->match("ReApEr.ExE").name == "REAPER", "case insensitive app match");
@@ -75,7 +141,11 @@ void configuration() {
     f.bad_config([](Json& v){v["ui"]["deadZonePx"] = 28.5;}, "integer");
     f.bad_config([](Json& v){v["ui"]["submenuDwellMs"] = 999999999999ULL;}, "submenuDwellMs");
     f.bad_config([](Json& v){v["ui"]["showShortcuts"] = "yes";}, "true or false");
-    f.bad_config([](Json& v){v["activation"]["behavior"] = "hold";}, "toggle");
+    check(good->activation_behavior == ActivationBehavior::Toggle, "toggle behavior loaded");
+    f.config["activation"]["behavior"] = "hold"; f.save();
+    check(load_config(f.directory)->activation_behavior == ActivationBehavior::Hold, "hold behavior loaded");
+    f.config["activation"]["behavior"] = "toggle"; f.save();
+    f.bad_config([](Json& v){v["activation"]["behavior"] = "press";}, "expected 'toggle' or 'hold'");
     f.bad_config([](Json& v){v["activation"]["cursorMode"] = "virtual";}, "restore");
     for (const auto* key : {"Esc", "Ctrl+Enter", "Backspace", "F12"})
         f.bad_config([&](Json& v){v["activation"]["hotkey"] = key;}, "menu controls");
@@ -162,6 +232,6 @@ void navigation() {
 }
 }
 int main() {
-    try { shortcuts(); configuration(); navigation(); std::cout << checks << " checks passed\n"; return 0; }
+    try { shortcuts(); hold_activation(); configuration(); navigation(); std::cout << checks << " checks passed\n"; return 0; }
     catch(const std::exception& e) { std::cerr << "FAIL after " << checks << " checks: " << e.what() << '\n'; return 1; }
 }

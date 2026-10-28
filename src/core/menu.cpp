@@ -53,6 +53,15 @@ std::optional<Chord> MenuState::confirm() {
     close();
     return result;
 }
+std::optional<Chord> MenuState::release() {
+    std::optional<Chord> result;
+    if (active() && selected_ >= 0) {
+        const auto& item = menu().items[static_cast<std::size_t>(selected_)];
+        if (!item.submenu) result = item.chord;
+    }
+    close();
+    return result;
+}
 bool MenuState::back() {
     if (!nested()) { close(); return false; }
     stack_.pop_back(); selected_ = -1; armed_ = false; hover_since_ = 0;

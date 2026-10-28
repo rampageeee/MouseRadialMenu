@@ -22,6 +22,24 @@ Chord parse_chord(std::string_view text);
 std::vector<std::uint16_t> chord_keys(const Chord& chord);
 std::string ascii_lower(std::string value);
 
+enum class ActivationBehavior { Toggle, Hold };
+enum class HoldEvent { Pass, Consume, Open, Release };
+// Own only the trigger's primary key. Modifiers may already belong to the target.
+// Cancellation invalidates the gesture but retains ownership through its key-up.
+class HoldActivation {
+public:
+    HoldEvent event(const Chord& trigger, bool enabled, std::uint16_t key,
+        bool up, bool repeat, unsigned modifiers);
+    void cancel() { valid_ = false; }
+    bool holding() const { return owned_key_ != 0; }
+    bool valid() const { return valid_; }
+    std::uint32_t session() const { return session_; }
+private:
+    std::uint16_t owned_key_ = 0;
+    bool valid_ = false;
+    std::uint32_t session_ = 0;
+};
+
 struct Menu;
 struct Item {
     std::string label;
@@ -36,6 +54,7 @@ struct Profile {
 };
 struct Config {
     Chord activation;
+    ActivationBehavior activation_behavior = ActivationBehavior::Toggle;
     double dead_zone = 28;
     std::uint64_t dwell_ms = 220;
     bool show_shortcuts = true;
@@ -59,6 +78,8 @@ public:
     bool hover(double x, double y, std::uint64_t now_ms);
     // Selecting a submenu enters it; it never dispatches a descendant on the same gesture.
     std::optional<Chord> confirm();
+    // A hold gesture ends on release; a submenu is never confirmed by release.
+    std::optional<Chord> release();
     bool back();
     bool active() const { return !stack_.empty(); }
     const Menu& menu() const { return *stack_.back(); }

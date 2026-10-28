@@ -122,8 +122,9 @@ std::shared_ptr<const Config> load_config(const std::filesystem::path& directory
         config->activation = parse_chord(text(required(activation, "hotkey", where), where + ".activation.hotkey"));
         if (config->activation.key == 0x1B || config->activation.key == 0x0D || config->activation.key == 0x08 || config->activation.key == 0x7B)
             invalid(where + ".activation.hotkey", "Esc/Enter/Backspace are menu controls; F12 is reserved for debugging");
-        if (text(required(activation, "behavior", where), where) != "toggle")
-            invalid(where + ".activation.behavior", "only 'toggle' is supported; hold awaits host input validation");
+        auto behavior = text(required(activation, "behavior", where), where + ".activation.behavior");
+        if (behavior == "hold") config->activation_behavior = ActivationBehavior::Hold;
+        else if (behavior != "toggle") invalid(where + ".activation.behavior", "expected 'toggle' or 'hold'");
         if (text(required(activation, "cursorMode", where), where) != "restore")
             invalid(where + ".activation.cursorMode", "only 'restore' is supported; virtual cursor is deferred");
         const auto& ui = required(json, "ui", where);

@@ -133,7 +133,9 @@ void Overlay::render(const MenuState& state, const Config& config) {
     target_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(220, 220), static_cast<float>(config.dead_zone), static_cast<float>(config.dead_zone)), brush);
     draw("Cancel", D2D1::RectF(194, 206, 246, 234), small_, 0xd7e0e8);
     draw(menu.label, D2D1::RectF(80, 0, 360, 19), small_, 0xf2f5f7);
-    draw(state.nested() ? "Center to rearm | Right click / Backspace: back | Esc: cancel" : "Click / Enter / hotkey: select | Esc: cancel",
+    const bool hold = config.activation_behavior == ActivationBehavior::Hold;
+    draw(hold ? (state.nested() ? "Center to rearm | Release key: select | Right click: back" : "Hold key, point, release: select | Esc: cancel") :
+        (state.nested() ? "Center to rearm | Right click / Backspace: back | Esc: cancel" : "Click / Enter / hotkey: select | Esc: cancel"),
         D2D1::RectF(10, 420, 430, 439), small_, 0xd7e0e8);
     HRESULT result = target_->EndDraw();
     release(brush);

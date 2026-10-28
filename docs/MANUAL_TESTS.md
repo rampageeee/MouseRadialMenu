@@ -8,7 +8,7 @@ Record Windows build, CPU/GPU, display resolution and scaling, monitor layout, k
 
 1. Build Release and run the core tests using the README commands. Start `InputProbe.exe`, click **Start observation**, then start TinyRadial. The tray should appear. With the probe foreground, record a physical F13 press if the keyboard supports it; otherwise use an ordinary safe key to confirm that both `HOOK` and `WINDOW` events appear. The probe does not save a log; record relevant lines manually or with a screenshot.
 2. Back up `config.json` and `profiles/default.json`. Set one default-profile leaf to `Ctrl+Shift+F13` and label it `Probe chord`. Reload from the tray. This chord is harmless in InputProbe. Use a keyboard activation first, normally `Ctrl+Alt+Space`.
-3. Press and release the activation chord. The overlay should open once. Hold the chord long enough for keyboard autorepeat: it should not repeatedly reopen/confirm. The probe should remain the foreground window; opening the overlay should not log probe deactivation. Record any activation key or modifier `WINDOW` events rather than assuming all are suppressed. If unwanted modifier behavior occurs, retry with F13 activation.
+3. Start with `activation.behavior: "toggle"`. Press and release the activation chord. The overlay should open once. Hold the chord long enough for keyboard autorepeat: it should not repeatedly reopen/confirm. The probe should remain the foreground window; opening the overlay should not log probe deactivation. Record any activation key or modifier `WINDOW` events rather than assuming all are suppressed. If unwanted modifier behavior occurs, retry with F13 activation.
 
 ## Menu and dispatch
 
@@ -23,6 +23,27 @@ Record Windows build, CPU/GPU, display resolution and scaling, monitor layout, k
 | 10 | After every selection/cancellation type normal text into a new disposable Notepad document and click around. | Ctrl/Alt/Shift/Win and mouse buttons behave normally. No lingering capture or pointer restriction. |
 
 When checking suppression, prioritize `WINDOW` events and application behavior. The probe's low-level hook may be later in the hook chain than TinyRadial and may not see an event already consumed by a menu hook. Its keyboard hook intentionally stops observing when the probe loses foreground; do not use missing background log entries as proof of suppression.
+
+## Hold-to-open / release-to-execute
+
+Keep the safe probe leaf and set `activation.behavior` to `"hold"`, then reload. Use the keyboard; G502/device mapping validation is deferred. All checks below require actual Windows results.
+
+| Check | Required observation |
+| --- | --- |
+| Hold Ctrl+Alt+Space, move onto the safe leaf, release Space, then release modifiers. | One opening and one injected chord; overlay closes and pointer restores. No physical Space down/repeats/up reach the probe. Ctrl/Alt events may pass normally. |
+| Hold long enough for autorepeat, navigate, then release. | No repeated opens, confirmations or actions. |
+| Release Ctrl/Alt first and continue holding Space; then release Space. | Modifier release alone does not select. Space release selects once. No modifiers remain stuck. |
+| Release Space while Ctrl/Alt remain held for more than two seconds. | Overlay closes; pending action times out without injection. Later modifier release cannot revive it. |
+| Release over center/outside, or over a submenu before its dwell threshold. | Menu closes without any chord, including descendant chords. |
+| Dwell into submenu; release before center rearm. Repeat with rearm and a leaf selected. | First attempt cancels; second executes exactly one nested leaf. |
+| Click/Enter a submenu while holding, then rearm and select a leaf. Click/Enter a leaf while holding. | Submenu entry works. Clicking/Enter on a leaf sends nothing; the final trigger release selects it. |
+| Move between segments and release between timer updates; continue moving immediately afterward. | Action corresponds to pointer position at release, not the older highlight or later pointer position. |
+| Release very quickly, including before opening can be processed. | No stray action, stuck overlay or leaked trigger pair. |
+| Esc cancel while holding; keep holding through autorepeat, then release. Repeat with focus loss, display changes, disable, reload and target closure. | No reopening or dispatch after cancellation. The remaining owned primary up is consumed. |
+| Switch hold to toggle or change hotkey while an old primary is held, then release it. Repeat with an occupied new hotkey causing reload failure. | Old release cannot select anything. New settings work only after successful reload; failure keeps the working mode/hotkey. |
+| Enable/reload with activation primary already physically down. | Autorepeat cannot start a gesture; a fresh full press after release is required. |
+| Start another gesture before the previous action/menu finishes; repeat 100 mixed select/cancel cycles. | Pending/overlapping operations cancel without duplicate actions, stranded hooks or unbounded handle/memory growth. |
+| Disable and type ordinary text; switch back to toggle and repeat the original checks. | Ordinary typing works; toggle behavior remains unchanged. |
 
 ## Context, cancellation and reload
 

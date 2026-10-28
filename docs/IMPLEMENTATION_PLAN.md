@@ -30,11 +30,17 @@ The coordinator implements production modules sequentially. A bounded QA workstr
 
 ## Input decisions
 
-- `RegisterHotKey` with `MOD_NOREPEAT`: toggle only. No guessed hold detection or always-on keyboard polling.
-- Keyboard/mouse control hooks only while menu open and briefly while draining consumed ups; Esc observation remains while a pending action awaits modifier release. Hook callbacks post messages and never render or inject.
+- `RegisterHotKey` with `MOD_NOREPEAT` supplies default toggle activation and reserves the configured chord in hold mode. Opt-in hold uses a physical-event keyboard observer and a core gesture-ownership state machine; no idle polling.
+- Keyboard/mouse control hooks handle the open menu and drain consumed ups; Esc observation remains while awaiting modifier release. Hold retains its keyboard hook while enabled and until an owned primary up after cancellation/disable. Callbacks only update input state, capture pointer/target identity, and post messages; they never render or inject.
 - A foreground observer cancels on a change away from the target, even if focus returns before a timer tick. Window/process identity and target privilege are revalidated before dispatch.
 - Cursor restoration, no confinement/capture, no Raw Input interception in production. Active-menu 16 ms hit testing; dispatch wait is bounded to two seconds; no idle timers.
 - Reload cancels any open menu/pending action, validates every file, reserves a changed hotkey, then swaps. Failure retains old config and hotkey.
 - Actions cannot equal the activation hotkey. Physical modifiers and primary keys must be released before an action. An interrupted `SendInput` batch releases only accepted downs, retries remaining ups twice, and reports failure honestly.
 
 Completed code is awaiting host acceptance; the MVP definition of done is still open until Windows behavior and measurements are recorded. Source publication is at the user's request. Generated builds and test ZIPs are excluded from source control; no verified release has been published.
+
+## Hold/release implementation follow-up
+
+Opt-in `activation.behavior: "hold"` is now implemented, with toggle still the default. Primary release selects a leaf once and cancels over center/outside/submenus. Dwell/click submenu navigation and center rearm work while holding. Cancellation invalidates queued gesture messages but preserves ownership of the outstanding primary up. Release coordinates/time are captured in the observer so delayed processing cannot select from a later pointer position. Physical modifiers pass normally; action dispatch still waits for their release. New core tests cover ownership, cancellation, repeats, mode changes and menu-release semantics. The dedicated hold-mode Windows matrix in `MANUAL_TESTS.md` remains required. Virtual cursor, REAPER scripting and G502-specific work remain deferred.
+
+Local verification: fresh native Debug build and fresh ASan/UBSan build each pass **294 checks** (CTest 1/1), with leak detection disabled for the sanitizer run because of the environment's tracing restriction. Windows x64 cross-compilation succeeds. The earlier 261-check and MSVC CI records describe the pre-hold implementation; a new native Windows CI run is needed for the hold changes. Interactive hold acceptance remains pending regardless of compilation/CI results.

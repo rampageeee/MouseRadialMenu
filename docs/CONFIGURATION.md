@@ -6,7 +6,7 @@ The bundled `config.json` and profiles are working schema examples. All fields s
 | --- | --- |
 | `schemaVersion` | Integer 1 in config and each profile |
 | `activation.hotkey` | One chord; see key list below |
-| `activation.behavior` | `"toggle"` |
+| `activation.behavior` | `"toggle"` (default) or `"hold"` |
 | `activation.cursorMode` | `"restore"` |
 | `ui.deadZonePx` | Integer 16–60, logical pixels at 96 DPI |
 | `ui.submenuDwellMs` | Integer 150–2000 |
@@ -25,6 +25,10 @@ Chord grammar: zero or more distinct modifiers, then exactly one key, separated 
 Examples: `Ctrl+Shift+S`, `Alt+Enter`, `F13`. Rejected: `Ctrl` (no key), `A+B` (two keys), `Ctrl+K, Ctrl+C` (sequence), `Ctrl++` (ambiguous punctuation). OEM/punctuation keys are deferred because they depend on keyboard layout. Chords represent simultaneous virtual-key presses, not text entry or scan-code macros.
 
 Activation cannot use Esc/Enter/Backspace or F12. A leaf chord cannot equal the activation chord because Windows would treat the injected action as another invocation. Other reserved/occupied hotkeys produce an actionable registration error.
+
+In `toggle` mode, one activation press opens and another confirms; click/Enter also confirm. In `hold` mode, hold the activation chord to open, navigate while holding the primary key, and release that primary key to select a leaf (Space for `Ctrl+Alt+Space`). Releasing modifiers first does not select anything. Click/Enter can enter submenus but do not execute leaves. Dwell entry, center rearming and right-click/Backspace navigation remain available. Releasing over a submenu entry, center, outside, or an unarmed submenu cancels the whole gesture. Cancellation, disable or reload invalidates the gesture; its later release cannot execute a chord. Very quick taps released before opening do nothing. If another gesture starts before the previous menu/action finishes, it cancels the previous operation rather than dispatching a second action.
+
+Hold mode observes physical keyboard events and consumes the activation primary key's down/repeats/up, including its remaining release after cancellation or a mode/hotkey change. Activation modifiers still pass normally; they are not retroactively suppressed or forcibly released. After selection, all physical modifiers and the action/activation keys must be released within two seconds or dispatch cancels. Injected keyboard events do not start hold gestures; test any external mapper separately. Windows input acceptance for hold mode remains pending.
 
 Reload cancels the current menu and pending dispatch, parses all files into an immutable candidate, reserves any changed activation hotkey, then swaps the configuration. A failure preserves both the previous configuration and activation registration. There is no automatic file watcher; choose Reload in the tray after saving files. Existing menu model snapshots remain valid independently of a successful config swap.
 

@@ -38,3 +38,7 @@ The script adds ten seconds of warm-up, samples Private Bytes each second, recor
 Startup and opening latency need separate evidence: record the measurement endpoints, method and uncertainty. High-frame-rate video of hotkey activation and overlay appearance can provide a coarse opening estimate; instrumented QPC timestamps or ETW are preferable for precise endpoints. Do not use `Start-Process` return time or `WaitForInputIdle` alone as evidence of first visible frame. No latency compliance is claimed until measured.
 
 Re-run the [manual matrix](MANUAL_TESTS.md) for keyboard safety and host behavior. Close the optional probe before measuring resident resources.
+
+## Hold/release follow-up
+
+The opt-in hold implementation extends the suite to **294 checks**, passed in fresh native Debug and ASan/UBSan builds on the same Linux host. Sanitizer execution uses `ASAN_OPTIONS=detect_leaks=0`; no leak-check result is claimed. Windows x64 cross-compilation passes. Earlier artifact hashes, sizes and 261-check records above describe the pre-hold build. Hold mode retains a keyboard observer while enabled; its Windows input behavior and idle overhead still require measurement.
