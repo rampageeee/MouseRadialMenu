@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "name": "REAPER",
+  "match": {"executables": ["reaper.exe"]},
+  "menu": {
+    "label": "REAPER",
+    "items": [
+      {"label": "Undo", "keys": "Ctrl+Z"},
+      {"label": "Save project", "keys": "Ctrl+S"},
+      {"label": "Editing", "submenu": {
+        "label": "Editing",
+        "items": [
+          {"label": "Split (check binding)", "keys": "S"},
+          {"label": "Snap (check binding)", "keys": "Alt+S"},
+          {"label": "Redo", "keys": "Ctrl+Shift+Z"}
+        ]
+      }},
+      {"label": "Play / stop", "keys": "Space"}
+    ]
+  }
+}

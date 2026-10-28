@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "name": "Desktop",
+  "match": {"executables": []},
+  "menu": {
+    "label": "Desktop",
+    "items": [
+      {"label": "Copy", "keys": "Ctrl+C"},
+      {"label": "Paste", "keys": "Ctrl+V"},
+      {"label": "Editing", "submenu": {
+        "label": "Editing",
+        "items": [
+          {"label": "Undo", "keys": "Ctrl+Z"},
+          {"label": "Redo", "keys": "Ctrl+Y"},
+          {"label": "Select all", "keys": "Ctrl+A"},
+          {"label": "Find", "keys": "Ctrl+F"}
+        ]
+      }},
+      {"label": "Save", "keys": "Ctrl+S"}
+    ]
+  }
+}

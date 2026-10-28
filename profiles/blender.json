@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "name": "Blender",
+  "match": {"executables": ["blender.exe"]},
+  "menu": {
+    "label": "Blender",
+    "items": [
+      {"label": "Save", "keys": "Ctrl+S"},
+      {"label": "Search (check keymap)", "keys": "F3"},
+      {"label": "Editing", "submenu": {
+        "label": "Editing",
+        "items": [
+          {"label": "Undo", "keys": "Ctrl+Z"},
+          {"label": "Redo", "keys": "Ctrl+Shift+Z"},
+          {"label": "Duplicate", "keys": "Shift+D"}
+        ]
+      }},
+      {"label": "Select all", "keys": "A"}
+    ]
+  }
+}

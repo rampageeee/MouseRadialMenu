@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "activation": {
+    "hotkey": "Ctrl+Alt+Space",
+    "behavior": "toggle",
+    "cursorMode": "restore"
+  },
+  "ui": {
+    "deadZonePx": 28,
+    "submenuDwellMs": 220,
+    "showShortcuts": true
+  },
+  "profiles": ["profiles/default.json", "profiles/reaper.json", "profiles/blender.json"]
+}

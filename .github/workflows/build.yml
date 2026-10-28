@@ -1,0 +1,21 @@
+name: Build and test
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+      - run: cmake --build build --parallel 2
+      - run: ctest --test-dir build --output-on-failure
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build, test and package x64 MSVC
+        shell: pwsh
+        run: ./tools/build-release.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TinyRadial-windows-x64-testing
+          path: dist/TinyRadial-windows-x64.zip
